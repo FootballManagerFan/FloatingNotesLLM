@@ -20,6 +20,23 @@ export function setByPath(obj: any, path: string, value: any): void {
   current[keys[keys.length - 1].replace(/\[(\d+)\]/g, ".$1")] = value;
 }
 
+/**
+ * Sanitize header values to ISO-8859-1 (Latin-1). Fetch API requires header
+ * values to contain only Latin-1 code points; non-Latin-1 causes "String contains
+ * non ISO-8859-1 code point" error.
+ */
+export function sanitizeHeadersForFetch(
+  headers: Record<string, unknown>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === "string") {
+      out[key] = value.replace(/[^\u0000-\u00FF]/g, "");
+    }
+  }
+  return out;
+}
+
 export async function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

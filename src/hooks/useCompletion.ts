@@ -77,6 +77,7 @@ export const useCompletion = () => {
   const [isFilesPopoverOpen, setIsFilesPopoverOpen] = useState(false);
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [keepEngaged, setKeepEngaged] = useState(false);
+  const [autoScreenshotOnSend, setAutoScreenshotOnSend] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
@@ -161,14 +162,31 @@ export const useCompletion = () => {
       const signal = abortControllerRef.current.signal;
 
       try {
+        // Collect images: optional auto screenshot + any attached image files
+        const imagesBase64: string[] = [];
+
+        if (autoScreenshotOnSend) {
+          try {
+            const base64 = (await invoke("capture_to_base64")) as string;
+            if (typeof base64 === "string" && base64.trim()) {
+              imagesBase64.push(base64);
+            }
+          } catch (error) {
+            console.error("Auto screenshot on send failed:", error);
+            setState((prev) => ({
+              ...prev,
+              error:
+                "Auto screenshot failed. Try the manual screenshot button, or check screen capture permissions.",
+            }));
+          }
+        }
+
         // Prepare message history for the AI
         const messageHistory = state.conversationHistory.map((msg) => ({
           role: msg.role,
           content: msg.content,
         }));
 
-        // Handle image attachments
-        const imagesBase64: string[] = [];
         if (state.attachedFiles.length > 0) {
           state.attachedFiles.forEach((file) => {
             if (file.type.startsWith("image/")) {
@@ -291,6 +309,7 @@ export const useCompletion = () => {
       allAiProviders,
       systemPrompt,
       state.conversationHistory,
+      autoScreenshotOnSend,
     ]
   );
 
@@ -1046,5 +1065,7 @@ export const useCompletion = () => {
     isScreenshotLoading,
     keepEngaged,
     setKeepEngaged,
+    autoScreenshotOnSend,
+    setAutoScreenshotOnSend,
   };
 };

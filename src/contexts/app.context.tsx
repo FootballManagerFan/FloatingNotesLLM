@@ -104,7 +104,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     provider: string;
     variables: Record<string, string>;
   }>({
-    provider: "",
+    provider: "openai",
     variables: {},
   });
 
@@ -236,12 +236,23 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     setCustomSttProviders(sttList);
 
-    // Load selected AI provider
+    // Load selected AI provider (default to OpenAI when none saved)
     const savedSelectedAi = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_AI_PROVIDER
     );
     if (savedSelectedAi) {
-      setSelectedAIProvider(JSON.parse(savedSelectedAi));
+      try {
+        const parsed = JSON.parse(savedSelectedAi);
+        if (parsed?.provider) {
+          setSelectedAIProvider(parsed);
+        } else {
+          setSelectedAIProvider({ provider: "openai", variables: {} });
+        }
+      } catch {
+        setSelectedAIProvider({ provider: "openai", variables: {} });
+      }
+    } else {
+      setSelectedAIProvider({ provider: "openai", variables: {} });
     }
 
     // Load selected STT provider

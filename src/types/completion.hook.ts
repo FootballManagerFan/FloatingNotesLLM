@@ -89,6 +89,12 @@ export interface UseCompletionReturn {
   /** Function to toggle keep engaged mode */
   setKeepEngaged: Dispatch<SetStateAction<boolean>>;
 
+  // Auto screenshot on send
+  /** Whether to automatically capture a screenshot when sending a message */
+  autoScreenshotOnSend: boolean;
+  /** Function to toggle auto screenshot on send */
+  setAutoScreenshotOnSend: Dispatch<SetStateAction<boolean>>;
+
   // Screenshot functionality
   /** Current screenshot configuration settings */
   screenshotConfiguration: any;

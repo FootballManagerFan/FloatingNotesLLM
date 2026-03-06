@@ -34,6 +34,8 @@ export const Input = ({
   isHidden,
   keepEngaged,
   setKeepEngaged,
+  autoScreenshotOnSend,
+  setAutoScreenshotOnSend,
 }: UseCompletionReturn & { isHidden: boolean }) => {
   return (
     <div className="relative flex-1">
@@ -118,6 +120,18 @@ export const Input = ({
                   onCheckedChange={(checked) => {
                     setKeepEngaged(checked);
                     // Focus input after toggle
+                    setTimeout(() => {
+                      inputRef?.current?.focus();
+                    }, 100);
+                  }}
+                />
+              </div>
+              <div className="flex flex-row items-center gap-2 mr-2">
+                <p className="text-[10px]">Auto screenshot on send</p>
+                <Switch
+                  checked={autoScreenshotOnSend}
+                  onCheckedChange={(checked) => {
+                    setAutoScreenshotOnSend(checked);
                     setTimeout(() => {
                       inputRef?.current?.focus();
                     }, 100);

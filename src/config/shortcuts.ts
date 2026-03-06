@@ -7,8 +7,8 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     description: "Open/Close the dashboard window",
     defaultKey: {
       macos: "cmd+shift+d",
-      windows: "ctrl+shift+d",
-      linux: "ctrl+shift+d",
+      windows: "ctrl+shift+o",
+      linux: "ctrl+shift+o",
     },
   },
   {

@@ -4,6 +4,7 @@ import {
   extractVariables,
   getByPath,
   getStreamingContent,
+  sanitizeHeadersForFetch,
 } from "./common.function";
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
@@ -210,6 +211,29 @@ export async function* fetchAIResponse(params: {
       throw new Error(`Selected provider not provided`);
     }
 
+    // Allow OpenAI API key from .env for local development (VITE_OPENAI_API_KEY)
+    const effectiveVariables = { ...selectedProvider.variables };
+    if (provider.id === "openai") {
+      const envKey = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
+      if (
+        envKey?.trim() &&
+        (!effectiveVariables.api_key || !effectiveVariables.api_key.trim())
+      ) {
+        effectiveVariables.api_key = envKey.trim();
+      }
+      // When sending images, must use a vision-capable model (image_url supported)
+      const model = (effectiveVariables.model || "").trim().toLowerCase();
+      const visionModels = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-vision"];
+      const hasVision =
+        visionModels.some((m) => model.startsWith(m)) ||
+        model.includes("vision");
+      if (imagesBase64.length > 0 && !hasVision) {
+        effectiveVariables.model = "gpt-4o-mini";
+      } else if (!model || model.startsWith("gpt-3.5-turbo")) {
+        effectiveVariables.model = "gpt-4o-mini";
+      }
+    }
+
     let curlJson;
     try {
       curlJson = curl2Json(provider.curl);
@@ -227,8 +251,8 @@ export async function* fetchAIResponse(params: {
     );
     for (const { key } of requiredVars) {
       if (
-        !selectedProvider.variables?.[key] ||
-        selectedProvider.variables[key].trim() === ""
+        !effectiveVariables[key] ||
+        effectiveVariables[key].trim() === ""
       ) {
         throw new Error(
           `Missing required variable: ${key}. Please configure it in settings.`
@@ -264,7 +288,7 @@ export async function* fetchAIResponse(params: {
 
     const allVariables = {
       ...Object.fromEntries(
-        Object.entries(selectedProvider.variables).map(([key, value]) => [
+        Object.entries(effectiveVariables).map(([key, value]) => [
           key.toUpperCase(),
           value,
         ])
@@ -275,7 +299,11 @@ export async function* fetchAIResponse(params: {
     bodyObj = deepVariableReplacer(bodyObj, allVariables);
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
 
-    const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
+    const rawHeaders = deepVariableReplacer(
+      curlJson.header || {},
+      allVariables
+    ) as Record<string, unknown>;
+    const headers = sanitizeHeadersForFetch(rawHeaders);
     headers["Content-Type"] = "application/json";
 
     if (provider?.streaming) {

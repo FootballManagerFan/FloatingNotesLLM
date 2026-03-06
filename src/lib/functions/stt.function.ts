@@ -2,6 +2,7 @@ import {
   deepVariableReplacer,
   getByPath,
   blobToBase64,
+  sanitizeHeadersForFetch,
 } from "./common.function";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
@@ -96,7 +97,10 @@ export async function fetchSTT(params: STTParams): Promise<string> {
 
     // Prepare request
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
-    const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
+    const rawHeaders = deepVariableReplacer(curlJson.header || {}, allVariables);
+    const headers = sanitizeHeadersForFetch(
+      rawHeaders as Record<string, unknown>
+    );
     const formData = deepVariableReplacer(curlJson.form || {}, allVariables);
 
     // To Check if API accepts Binary Data
