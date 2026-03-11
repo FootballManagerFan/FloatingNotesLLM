@@ -389,3 +389,34 @@ pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, S
     .await
     .map_err(|e| format!("Task panicked: {}", e))?
 }
+
+/// Captures all monitors and returns an array of base64-encoded PNG images (one per monitor).
+/// Order matches the system monitor order (typically primary first).
+#[tauri::command]
+pub async fn capture_all_monitors_to_base64() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+        if monitors.is_empty() {
+            return Err("No monitors found".to_string());
+        }
+        let mut result = Vec::with_capacity(monitors.len());
+        for (idx, monitor) in monitors.into_iter().enumerate() {
+            let image = monitor
+                .capture_image()
+                .map_err(|e| format!("Failed to capture monitor {}: {}", idx, e))?;
+            let mut png_buffer = Vec::new();
+            PngEncoder::new(&mut png_buffer)
+                .write_image(
+                    image.as_raw(),
+                    image.width(),
+                    image.height(),
+                    ColorType::Rgba8.into(),
+                )
+                .map_err(|e| format!("Failed to encode monitor {} to PNG: {}", idx, e))?;
+            result.push(base64::engine::general_purpose::STANDARD.encode(png_buffer));
+        }
+        Ok(result)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+}

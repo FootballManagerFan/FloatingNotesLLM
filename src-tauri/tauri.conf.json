@@ -14,20 +14,22 @@
     "windows": [
       {
         "title": "Pluely - AI Assistant",
-        "width": 600,
-        "height": 54,
+        "width": 400,
+        "height": 600,
+        "minWidth": 400,
+        "minHeight": 400,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": false,
-        "resizable": false,
+        "alwaysOnTop": true,
+        "resizable": true,
         "visibleOnAllWorkspaces": true,
         "skipTaskbar": true,
         "visible": true,
-        "center": false,
-        "contentProtected": true,
-        "focus": false,
+        "center": true,
+        "contentProtected": false,
+        "focus": true,
         "acceptFirstMouse": true,
-        "shadow": false
+        "shadow": true
       }
     ],
     "security": { "csp": null }

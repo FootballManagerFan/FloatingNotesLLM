@@ -15,16 +15,21 @@ export const DashboardLayout = () => {
       }}
     >
       <div className="relative flex h-screen w-screen overflow-hidden bg-background">
-        {/* Draggable region */}
+        {/* Draggable region - only this strip */}
         <div
           className="absolute left-0 right-0 top-0 z-50 h-10 select-none"
           data-tauri-drag-region={true}
         />
 
-        {/* Sidebar */}
-        <Sidebar />
-        {/* Main Content */}
-        <main className="flex flex-1 flex-col overflow-hidden px-8">
+        {/* Sidebar - no-drag so nav and buttons receive clicks */}
+        <div data-tauri-drag-region="no-drag">
+          <Sidebar />
+        </div>
+        {/* Main Content - no-drag so all page buttons work */}
+        <main
+          className="flex flex-1 flex-col overflow-hidden px-8"
+          data-tauri-drag-region="no-drag"
+        >
           <Outlet />
         </main>
       </div>

@@ -180,7 +180,14 @@ export const Input = ({
                   <span className="text-sm">Generating response...</span>
                 </div>
               )}
-              {response && <Markdown>{response}</Markdown>}
+              {response &&
+                (isLoading ? (
+                  <div className="whitespace-pre-wrap text-sm text-foreground">
+                    {response}
+                  </div>
+                ) : (
+                  <Markdown>{response}</Markdown>
+                ))}
 
               {/* Conversation History - Separate scroll, no auto-scroll */}
               {keepEngaged && conversationHistory.length > 1 && (

@@ -7,18 +7,28 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     description: "Open/Close the dashboard window",
     defaultKey: {
       macos: "cmd+shift+d",
-      windows: "ctrl+shift+o",
-      linux: "ctrl+shift+o",
+      windows: "ctrl+shift+d",
+      linux: "ctrl+shift+d",
     },
   },
   {
     id: "toggle_window",
     name: "Toggle Window",
-    description: "Show/Hide the main window",
+    description: "Show/Hide the main overlay window",
     defaultKey: {
-      macos: "cmd+backslash",
-      windows: "ctrl+backslash",
-      linux: "ctrl+backslash",
+      macos: "cmd+shift+p",
+      windows: "ctrl+shift+p",
+      linux: "ctrl+shift+p",
+    },
+  },
+  {
+    id: "always_on_top",
+    name: "Always on Top",
+    description: "Toggle pin window on top (thumbtack)",
+    defaultKey: {
+      macos: "cmd+shift+t",
+      windows: "ctrl+shift+t",
+      linux: "ctrl+shift+t",
     },
   },
   {

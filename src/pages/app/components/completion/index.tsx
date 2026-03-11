@@ -4,6 +4,8 @@ import { Files } from "./Files";
 import { Audio } from "./Audio";
 import { Input } from "./Input";
 
+export { Screenshot } from "./Screenshot";
+
 export const Completion = ({ isHidden }: { isHidden: boolean }) => {
   const completion = useCompletion();
 

@@ -30,7 +30,7 @@ export const ChatScreenshot = ({
     <Button
       size="icon"
       variant="outline"
-      className="size-7 lg:size-9 rounded-lg lg:rounded-xl"
+      className="size-7 lg:size-8 rounded-lg lg:rounded-xl shrink-0 p-0 [&_svg]:size-3 [&_svg]:lg:size-4"
       title={
         !supportsImages
           ? "Screenshot not supported by current AI provider"

@@ -23,6 +23,10 @@ export const Screenshot = ({
     isScreenshotLoading ||
     !supportsImages;
 
+  const shortcutHint = navigator.platform.toLowerCase().includes("mac")
+    ? "Cmd+Shift+S"
+    : "Ctrl+Shift+S";
+
   return (
     <Button
       size="icon"
@@ -30,10 +34,11 @@ export const Screenshot = ({
       title={
         !supportsImages
           ? "Screenshot not supported by current AI provider"
-          : `${captureMode} mode (${processingMode}) - ${attachedFiles.length}/${MAX_FILES} files`
+          : `${captureMode} mode (${processingMode}) - ${attachedFiles.length}/${MAX_FILES} files · ${shortcutHint}`
       }
       onClick={captureScreenshot}
       disabled={isDisabled}
+      data-tauri-drag-region="no-drag"
     >
       {isScreenshotLoading ? (
         <Loader2 className="h-4 w-4 animate-spin" />

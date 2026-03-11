@@ -77,7 +77,7 @@ export const useCompletion = () => {
   const [isFilesPopoverOpen, setIsFilesPopoverOpen] = useState(false);
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [keepEngaged, setKeepEngaged] = useState(false);
-  const [autoScreenshotOnSend, setAutoScreenshotOnSend] = useState(false);
+  const [autoScreenshotOnSend, setAutoScreenshotOnSend] = useState(true);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
@@ -142,13 +142,6 @@ export const useCompletion = () => {
         return;
       }
 
-      if (speechText) {
-        setState((prev) => ({
-          ...prev,
-          input: speechText,
-        }));
-      }
-
       // Generate unique request ID
       const requestId = generateRequestId();
       currentRequestIdRef.current = requestId;
@@ -161,15 +154,38 @@ export const useCompletion = () => {
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
 
+      // Add user message to history INSTANTLY (before any async work)
+      const userTimestamp = Date.now();
+      const pendingUserMsg: ChatMessage = {
+        id: generateMessageId("user", userTimestamp),
+        role: "user",
+        content: input,
+        timestamp: userTimestamp,
+      };
+
+      // Capture attached files before clearing state
+      const currentAttachedFiles = state.attachedFiles;
+
+      setState((prev) => ({
+        ...prev,
+        isLoading: true,
+        error: null,
+        response: "",
+        input: "",
+        conversationHistory: [...prev.conversationHistory, pendingUserMsg],
+      }));
+
       try {
         // Collect images: optional auto screenshot + any attached image files
         const imagesBase64: string[] = [];
 
         if (autoScreenshotOnSend) {
           try {
-            const base64 = (await invoke("capture_to_base64")) as string;
-            if (typeof base64 === "string" && base64.trim()) {
-              imagesBase64.push(base64);
+            const base64Array = (await invoke("capture_all_monitors_to_base64")) as string[];
+            if (Array.isArray(base64Array)) {
+              base64Array.forEach((b) => {
+                if (typeof b === "string" && b.trim()) imagesBase64.push(b);
+              });
             }
           } catch (error) {
             console.error("Auto screenshot on send failed:", error);
@@ -181,14 +197,14 @@ export const useCompletion = () => {
           }
         }
 
-        // Prepare message history for the AI
+        // Prepare message history for the AI (use history before we added the pending msg)
         const messageHistory = state.conversationHistory.map((msg) => ({
           role: msg.role,
           content: msg.content,
         }));
 
-        if (state.attachedFiles.length > 0) {
-          state.attachedFiles.forEach((file) => {
+        if (currentAttachedFiles.length > 0) {
+          currentAttachedFiles.forEach((file) => {
             if (file.type.startsWith("image/")) {
               imagesBase64.push(file.base64);
             }
@@ -198,7 +214,6 @@ export const useCompletion = () => {
         let fullResponse = "";
 
         const usePluelyAPI = await shouldUsePluelyAPI();
-        // Check if AI provider is configured
         if (!selectedAIProvider.provider && !usePluelyAPI) {
           setState((prev) => ({
             ...prev,
@@ -217,14 +232,6 @@ export const useCompletion = () => {
           }));
           return;
         }
-
-        // Clear previous response and set loading state
-        setState((prev) => ({
-          ...prev,
-          isLoading: true,
-          error: null,
-          response: "",
-        }));
 
         try {
           // Use the fetchAIResponse function with signal
@@ -284,10 +291,10 @@ export const useCompletion = () => {
             fullResponse,
             state.attachedFiles
           );
-          // Clear input and attached files after saving
+          // Clear streaming response (now in conversationHistory) and attached files
           setState((prev) => ({
             ...prev,
-            input: "",
+            response: "",
             attachedFiles: [],
           }));
         }
@@ -319,7 +326,23 @@ export const useCompletion = () => {
       abortControllerRef.current = null;
     }
     currentRequestIdRef.current = null;
-    setState((prev) => ({ ...prev, isLoading: false }));
+    setState((prev) => {
+      // Remove the pending user message (last message if it's a user msg with no AI reply yet)
+      const history = [...prev.conversationHistory];
+      if (
+        history.length > 0 &&
+        history[history.length - 1].role === "user" &&
+        !prev.response
+      ) {
+        history.pop();
+      }
+      return {
+        ...prev,
+        isLoading: false,
+        response: "",
+        conversationHistory: history,
+      };
+    });
   }, []);
 
   const reset = useCallback(() => {
@@ -560,8 +583,9 @@ export const useCompletion = () => {
   };
 
   const handleScreenshotSubmit = useCallback(
-    async (base64: string, prompt?: string) => {
-      if (state.attachedFiles.length >= MAX_FILES) {
+    async (base64OrArray: string | string[], prompt?: string) => {
+      const images = Array.isArray(base64OrArray) ? base64OrArray : [base64OrArray];
+      if (state.attachedFiles.length + images.length > MAX_FILES) {
         setState((prev) => ({
           ...prev,
           error: `You can only upload ${MAX_FILES} files`,
@@ -571,14 +595,14 @@ export const useCompletion = () => {
 
       try {
         if (prompt) {
-          // Auto mode: Submit directly to AI with screenshot
-          const attachedFile: AttachedFile = {
-            id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
+          // Auto mode: Submit directly to AI with all screenshots
+          const attachedFiles: AttachedFile[] = images.map((base64, i) => ({
+            id: `${Date.now()}_${i}`,
+            name: `screenshot_${Date.now()}_${i}.png`,
             type: "image/png",
-            base64: base64,
+            base64,
             size: base64.length,
-          };
+          }));
 
           // Generate unique request ID
           const requestId = generateRequestId();
@@ -638,7 +662,7 @@ export const useCompletion = () => {
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
               userMessage: prompt,
-              imagesBase64: [base64],
+              imagesBase64: images,
               signal,
             })) {
               // Only update if this is still the current request
@@ -667,9 +691,7 @@ export const useCompletion = () => {
 
             // Save the conversation after successful completion
             if (fullResponse) {
-              await saveCurrentConversation(prompt, fullResponse, [
-                attachedFile,
-              ]);
+              await saveCurrentConversation(prompt, fullResponse, attachedFiles);
               // Clear input after saving
               setState((prev) => ({
                 ...prev,
@@ -691,18 +713,18 @@ export const useCompletion = () => {
             }
           }
         } else {
-          // Manual mode: Add to attached files
-          const attachedFile: AttachedFile = {
-            id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
+          // Manual mode: Add all screenshots to attached files
+          const newFiles: AttachedFile[] = images.map((base64, i) => ({
+            id: `${Date.now()}_${i}`,
+            name: `screenshot_${Date.now()}_${i}.png`,
             type: "image/png",
-            base64: base64,
+            base64,
             size: base64.length,
-          };
+          }));
 
           setState((prev) => ({
             ...prev,
-            attachedFiles: [...prev.attachedFiles, attachedFile],
+            attachedFiles: [...prev.attachedFiles, ...newFiles],
           }));
         }
       } catch (error) {
@@ -906,16 +928,26 @@ export const useCompletion = () => {
       }
 
       if (config.enabled) {
-        const base64 = await invoke("capture_to_base64");
-
-        if (config.mode === "auto") {
-          // Auto mode: Submit directly to AI with the configured prompt
-          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-        } else if (config.mode === "manual") {
-          // Manual mode: Add to attached files without prompt
-          await handleScreenshotSubmit(base64 as string);
+        try {
+          await invoke("hide_main_window");
+          await new Promise((r) => setTimeout(r, 200));
+          const base64Array = (await invoke("capture_all_monitors_to_base64")) as string[];
+          await invoke("show_main_window");
+          if (Array.isArray(base64Array) && base64Array.length > 0) {
+            const validBase64 = base64Array.filter(
+              (b): b is string => typeof b === "string" && b.trim().length > 0
+            );
+            if (validBase64.length > 0) {
+              await handleScreenshotSubmit(
+                validBase64,
+                config.mode === "auto" ? config.autoPrompt : undefined
+              );
+            }
+            screenshotInitiatedByThisContext.current = false;
+          }
+        } finally {
+          await invoke("show_main_window").catch(() => {});
         }
-        screenshotInitiatedByThisContext.current = false;
       } else {
         // Selection Mode: Open overlay to select an area
         isProcessingScreenshotRef.current = false;

@@ -137,12 +137,17 @@ export const SystemAudio = (props: useSystemAudioType) => {
         }
       }
 
-      // Capture screenshot
-      const base64: string = await invoke("capture_screenshot", {
-        screenId: null, // Use default screen
-      });
-
-      setScreenshotImage(base64);
+      // Capture screenshot (hide main window first so it's not in the capture)
+      try {
+        await invoke("hide_main_window");
+        await new Promise((r) => setTimeout(r, 200));
+        const base64Array = (await invoke("capture_all_monitors_to_base64")) as string[];
+        if (Array.isArray(base64Array) && base64Array.length > 0) {
+          setScreenshotImage(base64Array[0]);
+        }
+      } finally {
+        await invoke("show_main_window").catch(() => {});
+      }
     } catch (err) {
       console.error("Failed to capture screenshot:", err);
     } finally {

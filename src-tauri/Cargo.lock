@@ -4137,6 +4137,7 @@ dependencies = [
  "libpulse-binding",
  "libpulse-simple-binding",
  "once_cell",
+ "raw-window-handle",
  "reqwest 0.12.23",
  "ringbuf",
  "serde",

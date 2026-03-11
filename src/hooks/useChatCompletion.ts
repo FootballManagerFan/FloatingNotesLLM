@@ -425,8 +425,9 @@ export const useChatCompletion = (
   };
 
   const handleScreenshotSubmit = useCallback(
-    async (base64: string, prompt?: string) => {
-      if (state.attachedFiles.length >= MAX_FILES) {
+    async (base64OrArray: string | string[], prompt?: string) => {
+      const images = Array.isArray(base64OrArray) ? base64OrArray : [base64OrArray];
+      if (state.attachedFiles.length + images.length > MAX_FILES) {
         setState((prev) => ({
           ...prev,
           error: `You can only upload ${MAX_FILES} files`,
@@ -436,37 +437,35 @@ export const useChatCompletion = (
 
       try {
         if (prompt) {
-          // Auto mode: Submit directly to AI with screenshot
-          const attachedFile: AttachedFile = {
-            id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
+          // Auto mode: Add all screenshots and submit with prompt
+          const attachedFiles: AttachedFile[] = images.map((base64, i) => ({
+            id: `${Date.now()}_${i}`,
+            name: `screenshot_${Date.now()}_${i}.png`,
             type: "image/png",
-            base64: base64,
+            base64,
             size: base64.length,
-          };
+          }));
 
-          // Store files temporarily and submit
           setState((prev) => ({
             ...prev,
-            attachedFiles: [...prev.attachedFiles, attachedFile],
+            attachedFiles: [...prev.attachedFiles, ...attachedFiles],
             input: prompt,
           }));
 
-          // Submit with the prompt and screenshot
           setTimeout(() => submit(prompt), 100);
         } else {
-          // Manual mode: Add to attached files
-          const attachedFile: AttachedFile = {
-            id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
+          // Manual mode: Add all to attached files
+          const newFiles: AttachedFile[] = images.map((base64, i) => ({
+            id: `${Date.now()}_${i}`,
+            name: `screenshot_${Date.now()}_${i}.png`,
             type: "image/png",
-            base64: base64,
+            base64,
             size: base64.length,
-          };
+          }));
 
           setState((prev) => ({
             ...prev,
-            attachedFiles: [...prev.attachedFiles, attachedFile],
+            attachedFiles: [...prev.attachedFiles, ...newFiles],
           }));
         }
       } catch (error) {
@@ -578,17 +577,26 @@ export const useChatCompletion = (
       }
 
       if (config.enabled) {
-        const base64 = await invoke("capture_to_base64");
-
-        if (config.mode === "auto") {
-          // Auto mode: Submit directly to AI with the configured prompt
-          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-        } else if (config.mode === "manual") {
-          // Manual mode: Add to attached files without prompt
-          await handleScreenshotSubmit(base64 as string);
+        try {
+          await invoke("hide_main_window");
+          await new Promise((r) => setTimeout(r, 200));
+          const base64Array = (await invoke("capture_all_monitors_to_base64")) as string[];
+          await invoke("show_main_window");
+          if (Array.isArray(base64Array) && base64Array.length > 0) {
+            const validBase64 = base64Array.filter(
+              (b): b is string => typeof b === "string" && b.trim().length > 0
+            );
+            if (validBase64.length > 0) {
+              await handleScreenshotSubmit(
+                validBase64,
+                config.mode === "auto" ? config.autoPrompt : undefined
+              );
+            }
+            screenshotInitiatedByThisContext.current = false;
+          }
+        } finally {
+          await invoke("show_main_window").catch(() => {});
         }
-        // Reset flag after processing
-        screenshotInitiatedByThisContext.current = false;
       } else {
         // Selection Mode: Open overlay to select an area
         // Only allow if user has active license

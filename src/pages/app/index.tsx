@@ -1,89 +1,108 @@
-import { Card, Updater, DragButton, CustomCursor, Button } from "@/components";
-import {
-  SystemAudio,
-  Completion,
-  AudioVisualizer,
-  StatusIndicator,
-} from "./components";
-import { useApp } from "@/hooks";
-import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
+import { useApp } from "@/hooks";
+import { useApp as useAppContext } from "@/contexts";
+import { useCompletion } from "@/hooks";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { CustomCursor } from "@/components";
 import { getPlatform } from "@/lib";
+import { TopBar } from "./components/TopBar";
+import { AIChatMode } from "./components/AIChatMode";
+import { ChatInputBar } from "./components/ChatInputBar";
+import { SystemAudio, AudioVisualizer, StatusIndicator } from "./components";
+
+export type AppMode = "ai" | "todo" | "meeting" | "chill";
 
 const App = () => {
   const { isHidden, systemAudio } = useApp();
-  const { customizable } = useAppContext();
+  const { customizable, toggleAlwaysOnTop } = useAppContext();
   const platform = getPlatform();
+  const [mode, setMode] = useState<AppMode>("ai");
 
-  const openDashboard = async () => {
+  const completion = useCompletion();
+
+  const closeWindow = async () => {
     try {
-      await invoke("open_dashboard");
-    } catch (error) {
-      console.error("Failed to open dashboard:", error);
+      await getCurrentWindow().hide();
+    } catch (e) {
+      console.error("Failed to hide window:", e);
     }
   };
 
   return (
     <ErrorBoundary
-      fallbackRender={() => {
-        return <ErrorLayout isCompact />;
-      }}
+      fallbackRender={() => <ErrorLayout isCompact />}
       resetKeys={["app-error"]}
-      onReset={() => {
-        console.log("Reset");
-      }}
+      onReset={() => console.log("Reset")}
     >
       <div
-        className={`w-screen h-screen flex overflow-hidden justify-center items-start ${
+        className={`w-screen h-screen flex flex-col bg-white rounded-2xl overflow-hidden ${
           isHidden ? "hidden pointer-events-none" : ""
         }`}
+        style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}
       >
-        <Card className="w-full flex flex-row items-center gap-2 p-2">
-          <SystemAudio {...systemAudio} />
-          {systemAudio?.capturing ? (
-            <div className="flex flex-row items-center gap-2 justify-between w-full">
-              <div className="flex flex-1 items-center gap-2">
-                <AudioVisualizer isRecording={systemAudio?.capturing} />
-              </div>
-              <div className="flex !w-fit items-center gap-2">
-                <StatusIndicator
-                  setupRequired={systemAudio.setupRequired}
-                  error={systemAudio.error}
-                  isProcessing={systemAudio.isProcessing}
-                  isAIProcessing={systemAudio.isAIProcessing}
-                  capturing={systemAudio.capturing}
-                />
-              </div>
+        <TopBar
+          mode={mode}
+          onModeChange={setMode}
+          isPinned={customizable.alwaysOnTop.isEnabled}
+          onTogglePin={() =>
+            toggleAlwaysOnTop(!customizable.alwaysOnTop.isEnabled)
+          }
+          onClose={closeWindow}
+        />
+
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-white">
+          {mode === "ai" && (
+            <AIChatMode
+              {...completion}
+              onSuggestionClick={(text) => {
+                completion.setInput(text);
+                setTimeout(() => completion.submit(), 50);
+              }}
+            />
+          )}
+
+          {mode === "todo" && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400 p-8">
+              <span className="text-5xl">✓</span>
+              <p className="text-sm font-medium text-gray-500">Todo mode</p>
+              <p className="text-xs text-center text-gray-400">Coming soon</p>
             </div>
-          ) : null}
+          )}
 
-          <div
-            className={`${
-              systemAudio?.capturing
-                ? "hidden w-full fade-out transition-all duration-300"
-                : "w-full flex flex-row gap-2 items-center"
-            }`}
-          >
-            <Completion isHidden={isHidden} />
-            <Button
-              size={"icon"}
-              className="cursor-pointer"
-              title="Open Dev Space"
-              onClick={openDashboard}
-            >
-              <SparklesIcon className="h-4 w-4" />
-            </Button>
-          </div>
+          {mode === "meeting" && (
+            <div className="flex-1 flex flex-col gap-3 p-4 overflow-auto">
+              <SystemAudio {...systemAudio} />
+              {systemAudio?.capturing && (
+                <div className="flex flex-col gap-2">
+                  <AudioVisualizer isRecording={systemAudio.capturing} />
+                  <StatusIndicator
+                    setupRequired={systemAudio.setupRequired}
+                    error={systemAudio.error}
+                    isProcessing={systemAudio.isProcessing}
+                    isAIProcessing={systemAudio.isAIProcessing}
+                    capturing={systemAudio.capturing}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
-          <Updater />
-          <DragButton />
-        </Card>
-        {customizable.cursor.type === "invisible" && platform !== "linux" ? (
+          {mode === "chill" && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400 p-8">
+              <span className="text-5xl">🌊</span>
+              <p className="text-sm font-medium text-gray-500">Chill mode</p>
+              <p className="text-xs text-center text-gray-400">Coming soon</p>
+            </div>
+          )}
+        </div>
+
+        {mode === "ai" && <ChatInputBar {...completion} />}
+
+        {customizable.cursor.type === "invisible" && platform !== "linux" && (
           <CustomCursor />
-        ) : null}
+        )}
       </div>
     </ErrorBoundary>
   );

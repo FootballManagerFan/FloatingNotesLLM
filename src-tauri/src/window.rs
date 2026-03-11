@@ -2,28 +2,188 @@
 use tauri::LogicalPosition;
 use tauri::{App, AppHandle, Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
 
-// The offset from the top of the screen to the window
-const TOP_OFFSET: i32 = 54;
+// Previously used for the 54px top-bar positioning — no longer needed with the 400×600 chat window.
+// Position is now handled by `center: true` in tauri.conf.json.
 
-/// Sets up the main window with custom positioning
+// On Windows, the first click on an unfocused window activates it but the click is consumed
+// (not delivered to the webview). On macOS this is solved with NSWindowStyleMaskNonActivatingPanel.
+// On Windows we intercept WM_MOUSEACTIVATE and return MA_ACTIVATE so the window activates AND
+// the click is delivered to the webview — giving single-click behavior.
+#[cfg(target_os = "windows")]
+mod win32_click_fix {
+    use std::ffi::c_void;
+
+    const WM_MOUSEACTIVATE: u32 = 0x0021;
+    const MA_ACTIVATE: isize = 1;
+
+    // DWM attributes
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33; // Windows 11+ rounded corners
+    const DWMWCP_ROUND: i32 = 2;
+    const DWMWA_BORDER_COLOR: u32 = 34;             // Windows 11+ accent border colour
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFF;      // "no border" sentinel
+
+    // Window style flags
+    const GWL_STYLE: i32 = -16;
+    const WS_BORDER: usize = 0x0080_0000;
+    const SWP_FRAMECHANGED: u32 = 0x0020;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOZORDER: u32 = 0x0004;
+
+    type SubclassProc = unsafe extern "system" fn(
+        hwnd: *mut c_void,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+        uid_subclass: usize,
+        dw_ref_data: usize,
+    ) -> isize;
+
+    #[link(name = "comctl32")]
+    extern "system" {
+        fn SetWindowSubclass(
+            hwnd: *mut c_void,
+            pfn_subclass: SubclassProc,
+            uid_subclass: usize,
+            dw_ref_data: usize,
+        ) -> i32;
+
+        fn DefSubclassProc(
+            hwnd: *mut c_void,
+            msg: u32,
+            wparam: usize,
+            lparam: isize,
+        ) -> isize;
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetWindowLongPtrW(hwnd: *mut c_void, n_index: i32) -> isize;
+        fn SetWindowLongPtrW(hwnd: *mut c_void, n_index: i32, dw_new_long: isize) -> isize;
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            hwnd_insert_after: *mut c_void,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            u_flags: u32,
+        ) -> i32;
+    }
+
+    #[repr(C)]
+    struct MARGINS {
+        cx_left_width: i32,
+        cx_right_width: i32,
+        cy_top_height: i32,
+        cy_bottom_height: i32,
+    }
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: *mut c_void,
+            dw_attribute: u32,
+            pv_attribute: *const i32,
+            cb_attribute: u32,
+        ) -> i32;
+
+        fn DwmExtendFrameIntoClientArea(
+            hwnd: *mut c_void,
+            p_mar_inset: *const MARGINS,
+        ) -> i32;
+    }
+
+    unsafe extern "system" fn subclass_proc(
+        hwnd: *mut c_void,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+        _uid_subclass: usize,
+        _dw_ref_data: usize,
+    ) -> isize {
+        if msg == WM_MOUSEACTIVATE {
+            return MA_ACTIVATE;
+        }
+        DefSubclassProc(hwnd, msg, wparam, lparam)
+    }
+
+    /// Install a window-message hook that makes the first click on an unfocused window
+    /// both activate it AND deliver the click to the webview (single-click behaviour).
+    ///
+    /// Also removes all visible window borders:
+    /// - Strips WS_BORDER from the window style so Windows doesn't draw its own edge.
+    /// - Disables the DWM 1px accent stroke drawn by the compositor (Windows 11+).
+    /// - Requests native DWM rounded corners (Windows 11+) so CSS border-radius and the
+    ///   compositor-level clipping stay in sync.
+    pub fn enable(hwnd: *mut c_void) {
+        unsafe {
+            SetWindowSubclass(hwnd, subclass_proc, 1, 0);
+
+            // ── 1. Remove WS_BORDER from the window style ────────────────────────────
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_BORDER as isize));
+            // Apply the style change immediately.
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0, 0, 0, 0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+            );
+
+            // ── 2. Remove the DWM 1px accent border (Windows 11+) ────────────────────
+            // Silently ignored on Windows 10.
+            let no_border = DWMWA_COLOR_NONE as i32;
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR,
+                &no_border,
+                std::mem::size_of::<u32>() as u32,
+            );
+
+            // ── 3. Request native DWM rounded corners (Windows 11+) ──────────────────
+            let pref = DWMWCP_ROUND;
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref,
+                std::mem::size_of::<i32>() as u32,
+            );
+
+            // ── 4. Extend DWM frame into entire client area ───────────────────────────
+            // Setting all margins to -1 collapses the frame/client distinction: the
+            // compositor treats every pixel as a frame pixel, so no separate window
+            // chrome layer is drawn. The CSS rounded content is composited directly
+            // against the desktop with no black/grey border artefact.
+            let margins = MARGINS {
+                cx_left_width: -1,
+                cx_right_width: -1,
+                cy_top_height: -1,
+                cy_bottom_height: -1,
+            };
+            DwmExtendFrameIntoClientArea(hwnd, &margins);
+        }
+    }
+}
+
+/// Sets up the main window. Position is handled by `center: true` in tauri.conf.json.
 pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    // Try different possible window labels
     let window = app
         .get_webview_window("main")
         .or_else(|| app.get_webview_window("pluely"))
-        .or_else(|| {
-            // Get the first window if specific labels don't work
-            app.webview_windows().values().next().cloned()
-        })
+        .or_else(|| app.webview_windows().values().next().cloned())
         .ok_or("No window found")?;
 
-    position_window_top_center(&window, TOP_OFFSET)?;
-
-    // Set window as non-focusable on Windows
-    // #[cfg(target_os = "windows")]
-    // {
-    //     let _ = window.set_focusable(false);
-    // }
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::HasWindowHandle;
+        if let Ok(handle) = window.window_handle() {
+            if let raw_window_handle::RawWindowHandle::Win32(win32) = handle.as_raw() {
+                let hwnd = win32.hwnd.get() as *mut std::ffi::c_void;
+                win32_click_fix::enable(hwnd);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -67,6 +227,46 @@ pub fn center_window_completely(window: &WebviewWindow) -> Result<(), Box<dyn st
         }))?;
     }
 
+    Ok(())
+}
+
+/// Focus the main (bar) window. Call when the user moves the pointer over the bar so the first
+/// click is delivered to the webview instead of being consumed by Windows/macOS for activation.
+#[tauri::command]
+pub fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .or_else(|| app.get_webview_window("pluely"))
+        .ok_or("Main window not found")?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus main window: {}", e))?;
+    Ok(())
+}
+
+/// Hide the main window (e.g. before taking a screenshot so the window is not in the capture).
+#[tauri::command]
+pub fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .or_else(|| app.get_webview_window("pluely"))
+        .ok_or("Main window not found")?;
+    window
+        .hide()
+        .map_err(|e| format!("Failed to hide main window: {}", e))?;
+    Ok(())
+}
+
+/// Show the main window (e.g. after taking a screenshot).
+#[tauri::command]
+pub fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .or_else(|| app.get_webview_window("pluely"))
+        .ok_or("Main window not found")?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show main window: {}", e))?;
     Ok(())
 }
 
